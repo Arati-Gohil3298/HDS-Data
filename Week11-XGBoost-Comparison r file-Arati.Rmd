@@ -1,0 +1,149 @@
+```{r}
+install.packages("mlbench")
+install.packages("data.table")
+install.packages("caret")
+```
+
+# Load libraries
+```{r}
+library(mlbench)
+library(purrr)
+library(data.table)
+library(caret)
+```
+
+
+# Load and clean Pima Indians dataset
+```{r}
+data("PimaIndiansDiabetes2")
+ds <- as.data.frame(na.omit(PimaIndiansDiabetes2))
+```
+
+
+# Fit logistic model
+```{r}
+logmodel <- glm(diabetes ~ ., data = ds, family = "binomial")
+```
+
+# Coefficients and predictors
+```{r}
+cfs <- coefficients(logmodel)
+prednames <- variable.names(ds)[-9]
+```
+
+# Set big sample size
+```{r}
+set.seed(42)
+sz <- 10000000 # 10 million
+```
+
+# Sample each predictor with replacement
+```{r}
+dfdata <- map_dfc(prednames, function(nm) {
+  eval(parse(text = paste0("sample(ds$", nm, ", size = sz, replace = T)")))
+})
+names(dfdata) <- prednames
+```
+
+
+# Generate outcome variable
+```{r}
+pvec <- map((1:8), function(pnum) {
+  cfs[pnum + 1] * eval(parse(text = paste0("dfdata$", prednames[pnum])))
+}) %>% reduce(`+`) + cfs[1]
+
+dfdata$outcome <- ifelse(1 / (1 + exp(-pvec)) > 0.5, 1, 0)
+
+```
+
+# Split into datasets
+```{r}
+df_100 <- dfdata[1:100, ]
+df_1k <- dfdata[1:1000, ]
+df_10k <- dfdata[1:10000, ]
+df_100k <- dfdata[1:100000, ]
+df_1m <- dfdata[1:1000000, ]
+df_10m <- dfdata[1:10000000, ]
+
+```
+
+# Save as CSV files
+```{r}
+write.csv(df_100, "df_100.csv", row.names = FALSE)
+write.csv(df_1k, "df_1k.csv", row.names = FALSE)
+write.csv(df_10k, "df_10k.csv", row.names = FALSE)
+write.csv(df_100k, "df_100k.csv", row.names = FALSE)
+write.csv(df_1m, "df_1m.csv", row.names = FALSE)
+write.csv(df_10m, "df_10m.csv", row.names = FALSE)
+
+```
+
+```{r}
+cat("✅ Datasets saved as CSV files!\n")
+```
+
+
+```{r}
+# Load all saved CSV datasets into a list
+datasets_caret <- list(
+  fread("df_100.csv"),
+  fread("df_1k.csv"),
+  fread("df_10k.csv"),
+  fread("df_100k.csv"),
+  fread("df_1m.csv"),
+  fread("df_10m.csv")
+)
+dataset_sizes <- c(100, 1000, 10000, 100000, 1000000, 10000000)
+```
+
+```{r}
+results_caret <- data.frame()
+```
+
+```{r}
+fitControl <- trainControl(method = "cv", number = 5)
+```
+
+```{r}
+results_caret <- data.frame()
+```
+
+```{r}
+2
+```
+
+# Step 4: FOR LOOP to train models
+```{r}
+for (i in 1:length(datasets_caret)) {
+  cat("Caret xgboost:", dataset_sizes[i], "rows...\n")
+  
+  df <- datasets_caret[[i]]
+  df$outcome <- as.factor(df$outcome)
+
+  start <- Sys.time()
+
+  model <- train(outcome ~ .,
+                 data = df,
+                 method = "xgbTree",
+                 trControl = fitControl,
+                 verbose = FALSE)
+
+  acc <- max(model$results$Accuracy)
+
+  end <- Sys.time()
+  elapsed <- as.numeric(difftime(end, start, units = "secs"))
+
+  results_caret <- rbind(results_caret,
+                         data.frame(Method = "R caret xgboost",
+                                    Size = dataset_sizes[i],
+                                    Accuracy = acc,
+                                    Time = elapsed))
+}
+
+```
+
+```{r}
+write.csv(results_caret, "r_caret_results.csv", row.names = FALSE)
+cat("✅ Caret XGBoost results saved!\n")
+```
+
